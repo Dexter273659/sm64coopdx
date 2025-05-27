@@ -8,13 +8,13 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      # 1) Checkout your coop source + baserom
+      # 1) Checkout your coop source + base ROM
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # 2) Install MSYS2 + build toolchain & dependencies
+      # 2) Install MSYS2 + toolchain & deps
       - name: Setup MSYS2 & install build tools
         uses: msys2/setup-msys2@v2
         with:
@@ -30,42 +30,38 @@ jobs:
             mingw-w64-ucrt-x86_64-enet
             mingw-w64-ucrt-x86_64-libpng
             mingw-w64-ucrt-x86_64-libjpeg-turbo
+            mingw-w64-ucrt-x86_64-zlib
             mingw-w64-ucrt-x86_64-freetype
             mingw-w64-ucrt-x86_64-glew
             mingw-w64-ucrt-x86_64-pkg-config
 
-      # 3) Verify N64 base ROM is present
+      # 3) Ensure base ROM
       - name: Check for baserom.us.z64
         shell: msys2 {0}
         run: |
           if [ ! -f baserom.us.z64 ]; then
-            echo "::error::Missing baserom.us.z64 – add your legally-owned ROM to the repo root."
+            echo "::error::Missing baserom.us.z64 – add it to repo root."
             exit 1
           fi
 
-      # 4) Build with make
+      # 4) Build UWP binaries
       - name: Build with make
         shell: msys2 {0}
         run: make PLATFORM=uwp CONFIG=Release
 
       # 5) Collect build output
-      - name: Collect build output
+      - name: Collect artifacts
         shell: msys2 {0}
         run: |
           mkdir -p output
           cp -r build/* output/
 
-      # 6) Normalize executable filename
-      - name: Normalize executable name
+      # 6) Normalize executable name
+      - name: Normalize executable
         shell: msys2 {0}
         run: |
-          set -e
           cd output
           exe=$(find . -type f -iname "*.exe" -print -quit)
-          if [ -z "$exe" ]; then
-            echo "::error::No .exe found under output"
-            exit 1
-          fi
           mv "$exe" SM64CoopDxDeluxe.exe
 
       # 7) Generate AppxManifest.xml
@@ -100,34 +96,31 @@ jobs:
           )
           $lines | Out-File output/AppxManifest.xml -Encoding utf8
 
-      # 8) Generate placeholder Assets
+      # 8) Generate placeholder assets
       - name: Generate placeholder Assets
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.Drawing
-          $out = "output\Assets"
-          if (!(Test-Path $out)) { New-Item -ItemType Directory -Path $out | Out-Null }
-          $map = @{44='Square44x44Logo.png';150='Square150x150Logo.png';50='StoreLogo.png'}
-          foreach ($size in $map.Keys) {
-            $bmp = New-Object System.Drawing.Bitmap($size, $size)
-            $g   = [System.Drawing.Graphics]::FromImage($bmp)
+          $out="output\Assets"
+          if (!(Test-Path $out)) { New-Item -ItemType Directory -Path $out }
+          $map=@{44='Square44x44Logo.png';150='Square150x150Logo.png';50='StoreLogo.png'}
+          foreach($size in $map.Keys){
+            $bmp=New-Object System.Drawing.Bitmap($size,$size)
+            $g=[System.Drawing.Graphics]::FromImage($bmp)
             $g.Clear([System.Drawing.Color]::LightGray)
             $bmp.Save("$out\$($map[$size])",[System.Drawing.Imaging.ImageFormat]::Png)
-            $g.Dispose(); $bmp.Dispose()
+            $g.Dispose();$bmp.Dispose()
           }
 
-      # 9) Package into .appx
+      # 9) Package UWP App
       - name: Package UWP App
         shell: pwsh
         run: |
-          $kits = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
-          $makeappx = Get-ChildItem "$kits\*\x64\makeappx.exe" -ErrorAction SilentlyContinue |
-                       Sort-Object DirectoryName -Descending |>"
-          Select-Object -First 1
-          if (-not $makeappx) { throw "makeappx.exe not found" }
+          $kits="${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+          $makeappx=Get-ChildItem "$kits\*\x64\makeappx.exe" -ErrorAction SilentlyContinue | Sort-Object DirectoryName -Descending | Select-Object -First 1
           & $makeappx.FullName pack /d output /p SM64CoopDxDeluxe.appx
 
-      # 10) Upload the .appx
+      # 10) Upload artifact
       - name: Upload SM64CoopDxDeluxe Appx
         uses: actions/upload-artifact@v4
         with:
