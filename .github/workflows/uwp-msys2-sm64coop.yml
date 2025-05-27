@@ -8,13 +8,13 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      # 1) Check out your code (source + baserom.us.z64)
+      # 1) Checkout your coop source + baserom
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # 2) Install MSYS2 + build tools & libraries
+      # 2) Install MSYS2 + build toolchain & dependencies
       - name: Setup MSYS2 & install build tools
         uses: msys2/setup-msys2@v2
         with:
@@ -26,22 +26,24 @@ jobs:
             mingw-w64-ucrt-x86_64-toolchain
             mingw-w64-ucrt-x86_64-SDL2
             mingw-w64-ucrt-x86_64-SDL2_image
+            mingw-w64-ucrt-x86_64-SDL2_net
+            mingw-w64-ucrt-x86_64-enet
             mingw-w64-ucrt-x86_64-libpng
             mingw-w64-ucrt-x86_64-libjpeg-turbo
             mingw-w64-ucrt-x86_64-freetype
             mingw-w64-ucrt-x86_64-glew
             mingw-w64-ucrt-x86_64-pkg-config
 
-      # 3) Verify base ROM is present
+      # 3) Verify N64 base ROM is present
       - name: Check for baserom.us.z64
         shell: msys2 {0}
         run: |
           if [ ! -f baserom.us.z64 ]; then
-            echo "::error::Missing baserom.us.z64 – add it to your repo root."
+            echo "::error::Missing baserom.us.z64 – add your legally-owned ROM to the repo root."
             exit 1
           fi
 
-      # 4) Build the UWP binaries via Makefile
+      # 4) Build with make
       - name: Build with make
         shell: msys2 {0}
         run: make PLATFORM=uwp CONFIG=Release
@@ -66,7 +68,7 @@ jobs:
           fi
           mv "$exe" SM64CoopDxDeluxe.exe
 
-      # 7) Generate AppxManifest.xml in output/
+      # 7) Generate AppxManifest.xml
       - name: Generate AppxManifest.xml
         shell: pwsh
         run: |
@@ -105,14 +107,13 @@ jobs:
           Add-Type -AssemblyName System.Drawing
           $out = "output\Assets"
           if (!(Test-Path $out)) { New-Item -ItemType Directory -Path $out | Out-Null }
-          $map = @{44='Square44x44Logo.png'; 150='Square150x150Logo.png'; 50='StoreLogo.png'}
+          $map = @{44='Square44x44Logo.png';150='Square150x150Logo.png';50='StoreLogo.png'}
           foreach ($size in $map.Keys) {
             $bmp = New-Object System.Drawing.Bitmap($size, $size)
             $g   = [System.Drawing.Graphics]::FromImage($bmp)
             $g.Clear([System.Drawing.Color]::LightGray)
             $bmp.Save("$out\$($map[$size])",[System.Drawing.Imaging.ImageFormat]::Png)
-            $g.Dispose()
-            $bmp.Dispose()
+            $g.Dispose(); $bmp.Dispose()
           }
 
       # 9) Package into .appx
@@ -121,8 +122,8 @@ jobs:
         run: |
           $kits = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
           $makeappx = Get-ChildItem "$kits\*\x64\makeappx.exe" -ErrorAction SilentlyContinue |
-                       Sort-Object DirectoryName -Descending |
-                       Select-Object -First 1
+                       Sort-Object DirectoryName -Descending |>"
+          Select-Object -First 1
           if (-not $makeappx) { throw "makeappx.exe not found" }
           & $makeappx.FullName pack /d output /p SM64CoopDxDeluxe.appx
 
