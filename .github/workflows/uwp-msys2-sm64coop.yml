@@ -14,7 +14,7 @@ jobs:
         with:
           submodules: recursive
 
-      # 2) Install MSYS2 + toolchain & deps
+      # 2) Install MSYS2 + toolchain & dependencies
       - name: Setup MSYS2 & install build tools
         uses: msys2/setup-msys2@v2
         with:
@@ -28,9 +28,9 @@ jobs:
             mingw-w64-ucrt-x86_64-SDL2_image
             mingw-w64-ucrt-x86_64-SDL2_net
             mingw-w64-ucrt-x86_64-enet
+            mingw-w64-ucrt-x86_64-zlib
             mingw-w64-ucrt-x86_64-libpng
             mingw-w64-ucrt-x86_64-libjpeg-turbo
-            mingw-w64-ucrt-x86_64-zlib
             mingw-w64-ucrt-x86_64-freetype
             mingw-w64-ucrt-x86_64-glew
             mingw-w64-ucrt-x86_64-pkg-config
@@ -44,13 +44,15 @@ jobs:
             exit 1
           fi
 
-      # 4) Build UWP binaries
+      # 4) Build UWP binaries with Win32 libs
       - name: Build with make
         shell: msys2 {0}
-        run: make PLATFORM=uwp CONFIG=Release
+        env:
+          LDFLAGS: "-lws2_32 -liphlpapi -lshlwapi"
+        run: make PLATFORM=uwp CONFIG=Release VERBOSE=1
 
-      # 5) Collect build output
-      - name: Collect artifacts
+      # 5) Collect build artifacts
+      - name: Collect build output
         shell: msys2 {0}
         run: |
           mkdir -p output
@@ -62,6 +64,10 @@ jobs:
         run: |
           cd output
           exe=$(find . -type f -iname "*.exe" -print -quit)
+          if [ -z "$exe" ]; then
+            echo "::error::No .exe found under output"
+            exit 1
+          fi
           mv "$exe" SM64CoopDxDeluxe.exe
 
       # 7) Generate AppxManifest.xml
@@ -101,23 +107,24 @@ jobs:
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.Drawing
-          $out="output\Assets"
-          if (!(Test-Path $out)) { New-Item -ItemType Directory -Path $out }
-          $map=@{44='Square44x44Logo.png';150='Square150x150Logo.png';50='StoreLogo.png'}
-          foreach($size in $map.Keys){
-            $bmp=New-Object System.Drawing.Bitmap($size,$size)
-            $g=[System.Drawing.Graphics]::FromImage($bmp)
+          $out = "output\Assets"
+          if (!(Test-Path $out)) { New-Item -ItemType Directory -Path $out | Out-Null }
+          $map = @{44='Square44x44Logo.png';150='Square150x150Logo.png';50='StoreLogo.png'}
+          foreach ($size in $map.Keys) {
+            $bmp = New-Object System.Drawing.Bitmap($size, $size)
+            $g   = [System.Drawing.Graphics]::FromImage($bmp)
             $g.Clear([System.Drawing.Color]::LightGray)
             $bmp.Save("$out\$($map[$size])",[System.Drawing.Imaging.ImageFormat]::Png)
-            $g.Dispose();$bmp.Dispose()
+            $g.Dispose(); $bmp.Dispose()
           }
 
       # 9) Package UWP App
       - name: Package UWP App
         shell: pwsh
         run: |
-          $kits="${env:ProgramFiles(x86)}\Windows Kits\10\bin"
-          $makeappx=Get-ChildItem "$kits\*\x64\makeappx.exe" -ErrorAction SilentlyContinue | Sort-Object DirectoryName -Descending | Select-Object -First 1
+          $kits = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+          $makeappx = Get-ChildItem "$kits\*\x64\makeappx.exe" -ErrorAction SilentlyContinue |
+                       Sort-Object DirectoryName -Descending | Select-Object -First 1
           & $makeappx.FullName pack /d output /p SM64CoopDxDeluxe.appx
 
       # 10) Upload artifact
