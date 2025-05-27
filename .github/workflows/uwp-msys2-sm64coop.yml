@@ -45,13 +45,19 @@ jobs:
             exit 1
           fi
 
-      # 4) Remove incompatible prebuilt Lua
+      # 4) Patch Makefile to use system Lua
+      - name: Patch Makefile for system Lua
+        shell: msys2 {0}
+        run: |
+          sed -i 's/-l:liblua53\.a/-llua/g' Makefile
+
+      # 5) Remove incompatible prebuilt Lua
       - name: Remove bundled Lua library
         shell: msys2 {0}
         run: |
           rm -rf lib/lua/win64
 
-      # 5) Build UWP binaries with proper flags
+      # 6) Build UWP binaries with proper flags) Build UWP binaries with proper flags
       - name: Build with make
         shell: msys2 {0}
         run: |
