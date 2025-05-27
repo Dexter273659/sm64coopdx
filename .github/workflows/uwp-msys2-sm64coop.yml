@@ -8,13 +8,13 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      # 1) Checkout your coop source + base ROM
+      # 1) Checkout source + base ROM
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # 2) Install MSYS2 + toolchain & dependencies
+      # 2) Install MSYS2 toolchain & dependencies
       - name: Setup MSYS2 & install build tools
         uses: msys2/setup-msys2@v2
         with:
@@ -34,8 +34,9 @@ jobs:
             mingw-w64-ucrt-x86_64-freetype
             mingw-w64-ucrt-x86_64-glew
             mingw-w64-ucrt-x86_64-pkg-config
+            mingw-w64-ucrt-x86_64-lua
 
-      # 3) Ensure base ROM
+      # 3) Verify base ROM
       - name: Check for baserom.us.z64
         shell: msys2 {0}
         run: |
@@ -44,33 +45,37 @@ jobs:
             exit 1
           fi
 
-      # 4) Build UWP binaries with Win32 libs
+      # 4) Remove incompatible prebuilt Lua
+      - name: Remove bundled Lua library
+        shell: msys2 {0}
+        run: |
+          rm -rf lib/lua/win64
+
+      # 5) Build UWP binaries with proper flags
       - name: Build with make
         shell: msys2 {0}
-        env:
-          LDFLAGS: "-lws2_32 -liphlpapi -lshlwapi"
-        run: make PLATFORM=uwp CONFIG=Release VERBOSE=1
+        run: |
+          # Use pkg-config for Lua flags and link Win32 APIs
+          CFLAGS="$(pkg-config --cflags lua)" \
+          LDFLAGS="$(pkg-config --libs lua) -lws2_32 -liphlpapi -lshlwapi" \
+          make PLATFORM=uwp CONFIG=Release VERBOSE=1
 
-      # 5) Collect build artifacts
+      # 6) Collect artifacts
       - name: Collect build output
         shell: msys2 {0}
         run: |
           mkdir -p output
           cp -r build/* output/
 
-      # 6) Normalize executable name
+      # 7) Normalize executable name
       - name: Normalize executable
         shell: msys2 {0}
         run: |
           cd output
           exe=$(find . -type f -iname "*.exe" -print -quit)
-          if [ -z "$exe" ]; then
-            echo "::error::No .exe found under output"
-            exit 1
-          fi
           mv "$exe" SM64CoopDxDeluxe.exe
 
-      # 7) Generate AppxManifest.xml
+      # 8) Generate AppxManifest.xml
       - name: Generate AppxManifest.xml
         shell: pwsh
         run: |
@@ -102,7 +107,7 @@ jobs:
           )
           $lines | Out-File output/AppxManifest.xml -Encoding utf8
 
-      # 8) Generate placeholder assets
+      # 9) Generate placeholder assets
       - name: Generate placeholder Assets
         shell: pwsh
         run: |
@@ -118,16 +123,15 @@ jobs:
             $g.Dispose(); $bmp.Dispose()
           }
 
-      # 9) Package UWP App
+      # 10) Package into .appx
       - name: Package UWP App
         shell: pwsh
         run: |
           $kits = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
-          $makeappx = Get-ChildItem "$kits\*\x64\makeappx.exe" -ErrorAction SilentlyContinue |
-                       Sort-Object DirectoryName -Descending | Select-Object -First 1
+          $makeappx = Get-ChildItem "$kits\*\x64\makeappx.exe" -ErrorAction SilentlyContinue | Sort-Object DirectoryName -Descending | Select-Object -First 1
           & $makeappx.FullName pack /d output /p SM64CoopDxDeluxe.appx
 
-      # 10) Upload artifact
+      # 11) Upload artifact
       - name: Upload SM64CoopDxDeluxe Appx
         uses: actions/upload-artifact@v4
         with:
