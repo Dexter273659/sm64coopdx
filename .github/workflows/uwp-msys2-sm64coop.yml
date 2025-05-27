@@ -55,9 +55,9 @@ jobs:
       - name: Build with make
         shell: msys2 {0}
         run: |
-          # Use pkg-config for Lua flags and link Win32 APIs
+          # Override Lua link to use system lib and add Win32 APIs
           CFLAGS="$(pkg-config --cflags lua)" \
-          LDFLAGS="$(pkg-config --libs lua) -lws2_32 -liphlpapi -lshlwapi" \
+          LDFLAGS="-llua -lws2_32 -liphlpapi -lshlwapi" \
           make PLATFORM=uwp CONFIG=Release VERBOSE=1
 
       # 6) Collect artifacts
