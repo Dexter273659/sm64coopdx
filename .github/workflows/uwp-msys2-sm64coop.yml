@@ -1,0 +1,134 @@
+name: Build SM64Coop-DX Deluxe UWP via MSYS2
+
+on:
+  workflow_dispatch:
+
+jobs:
+  uwp-msys2-build:
+    runs-on: windows-latest
+
+    steps:
+      # 1) Check out your code (source + baserom.us.z64)
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # 2) Install MSYS2 + build tools & libraries
+      - name: Setup MSYS2 & install build tools
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: |
+            git
+            make
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-SDL2
+            mingw-w64-ucrt-x86_64-SDL2_image
+            mingw-w64-ucrt-x86_64-libpng
+            mingw-w64-ucrt-x86_64-libjpeg-turbo
+            mingw-w64-ucrt-x86_64-freetype
+            mingw-w64-ucrt-x86_64-glew
+            mingw-w64-ucrt-x86_64-pkg-config
+
+      # 3) Verify base ROM is present
+      - name: Check for baserom.us.z64
+        shell: msys2 {0}
+        run: |
+          if [ ! -f baserom.us.z64 ]; then
+            echo "::error::Missing baserom.us.z64 – add it to your repo root."
+            exit 1
+          fi
+
+      # 4) Build the UWP binaries via Makefile
+      - name: Build with make
+        shell: msys2 {0}
+        run: make PLATFORM=uwp CONFIG=Release
+
+      # 5) Collect build output
+      - name: Collect build output
+        shell: msys2 {0}
+        run: |
+          mkdir -p output
+          cp -r build/* output/
+
+      # 6) Normalize executable filename
+      - name: Normalize executable name
+        shell: msys2 {0}
+        run: |
+          set -e
+          cd output
+          exe=$(find . -type f -iname "*.exe" -print -quit)
+          if [ -z "$exe" ]; then
+            echo "::error::No .exe found under output"
+            exit 1
+          fi
+          mv "$exe" SM64CoopDxDeluxe.exe
+
+      # 7) Generate AppxManifest.xml in output/
+      - name: Generate AppxManifest.xml
+        shell: pwsh
+        run: |
+          $lines = @(
+            '<?xml version="1.0" encoding="utf-8"?>',
+            '<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities" IgnorableNamespaces="uap rescap">',
+            '  <Identity Name="com.KaydenBerry.SM64CoopDxDeluxe" Publisher="CN=841AFD4F-58DD-4BB8-A46A-FFE9B9E0B8E6" Version="1.0.0.0" />',
+            '  <Properties>',
+            '    <DisplayName>SM64CoopDxDeluxe</DisplayName>',
+            '    <PublisherDisplayName>Kayden Berry</PublisherDisplayName>',
+            '    <Description>Super Mario 64 Co-Op Deluxe UWP port</Description>',
+            '    <Logo>Assets/StoreLogo.png</Logo>',
+            '  </Properties>',
+            '  <Dependencies>',
+            '    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.0.0" MaxVersionTested="10.0.26100.0" />',
+            '  </Dependencies>',
+            '  <Resources>',
+            '    <Resource Language="en-us" />',
+            '  </Resources>',
+            '  <Capabilities>',
+            '    <rescap:Capability Name="runFullTrust" />',
+            '  </Capabilities>',
+            '  <Applications>',
+            '    <Application Id="App" Executable="SM64CoopDxDeluxe.exe" EntryPoint="Windows.FullTrustApplication">',
+            '      <uap:VisualElements DisplayName="SM64CoopDxDeluxe" Square150x150Logo="Assets/Square150x150Logo.png" Square44x44Logo="Assets/Square44x44Logo.png" Description="Super Mario 64 Co-Op Deluxe UWP port" BackgroundColor="transparent" />',
+            '    </Application>',
+            '  </Applications>',
+            '</Package>'
+          )
+          $lines | Out-File output/AppxManifest.xml -Encoding utf8
+
+      # 8) Generate placeholder Assets
+      - name: Generate placeholder Assets
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $out = "output\Assets"
+          if (!(Test-Path $out)) { New-Item -ItemType Directory -Path $out | Out-Null }
+          $map = @{44='Square44x44Logo.png'; 150='Square150x150Logo.png'; 50='StoreLogo.png'}
+          foreach ($size in $map.Keys) {
+            $bmp = New-Object System.Drawing.Bitmap($size, $size)
+            $g   = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.Clear([System.Drawing.Color]::LightGray)
+            $bmp.Save("$out\$($map[$size])",[System.Drawing.Imaging.ImageFormat]::Png)
+            $g.Dispose()
+            $bmp.Dispose()
+          }
+
+      # 9) Package into .appx
+      - name: Package UWP App
+        shell: pwsh
+        run: |
+          $kits = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+          $makeappx = Get-ChildItem "$kits\*\x64\makeappx.exe" -ErrorAction SilentlyContinue |
+                       Sort-Object DirectoryName -Descending |
+                       Select-Object -First 1
+          if (-not $makeappx) { throw "makeappx.exe not found" }
+          & $makeappx.FullName pack /d output /p SM64CoopDxDeluxe.appx
+
+      # 10) Upload the .appx
+      - name: Upload SM64CoopDxDeluxe Appx
+        uses: actions/upload-artifact@v4
+        with:
+          name: SM64CoopDxDeluxe-UWP
+          path: SM64CoopDxDeluxe.appx
